@@ -12,6 +12,28 @@ void virt_machine_run(VirtMachine* opaque);
 VirtMachine* myvm;
 VirtMachineParams myparam;
 
+// library stubs
+void 
+console_write(void* ctx, const uint8_t* buf, int len){
+}
+
+void
+console_get_size(int* pw, int* ph){
+    *pw = 80;
+    *ph = 80;
+}
+
+void
+fb_refresh(void* ctx, void* data, 
+           int x, int y, int w, int h, int stride){
+}
+
+void
+net_recv_packet(void* dev,
+                const uint8_t* buf, int len){
+}
+
+
 /* LoadFile (from machine.c) */
 static int load_file(uint8_t **pbuf, const char *filename)
 {
