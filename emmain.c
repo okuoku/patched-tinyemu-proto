@@ -75,6 +75,7 @@ ememu_configure(int req, uintptr_t param0, uintptr_t param1){
             abort();
             break;
     }
+    printf("CONFIG %d: %lx %lx => %lx\n", req, param0, param1, r);
     return r;
 }
 
