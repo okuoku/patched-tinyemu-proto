@@ -33,33 +33,6 @@ net_recv_packet(void* dev,
                 const uint8_t* buf, int len){
 }
 
-
-/* LoadFile (from machine.c) */
-static int load_file(uint8_t **pbuf, const char *filename)
-{
-    FILE *f;
-    int size;
-    uint8_t *buf;
-
-    f = fopen(filename, "rb");
-    if (!f) {
-        perror(filename);
-        exit(1);
-    }
-    fseek(f, 0, SEEK_END);
-    size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    buf = malloc(size);
-    if (fread(buf, 1, size, f) != size) {
-        fprintf(stderr, "%s: read error\n", filename);
-        exit(1);
-    }
-    fclose(f);
-    *pbuf = buf;
-    return size;
-}
-
-
 /* Chrdev */
 CharacterDevice mychr;
 
@@ -76,12 +49,39 @@ chr_read_data(void* bogus, uint8_t *buf, int len){
     return 0;
 }
 
+void* bios_ptr;
+int bios_size;
+
+void* kernel_ptr;
+int kernel_size;
+
+uintptr_t 
+ememu_configure(int req, uintptr_t param0, uintptr_t param1){
+    uintptr_t r = 0;
+    switch(req){
+        case 1: /* malloc */
+            r = (uintptr_t)malloc(param0);
+            break;
+        case 100: /* SET_BIOS */
+            bios_ptr = (void*)param0;
+            bios_size = param1;
+            break;
+        case 101: /* SET_KERNEL */
+            kernel_ptr = (void*)param0;
+            kernel_size = param1;
+            break;
+        default:
+            fprintf(stderr, "Invalid argument.\n");
+            abort();
+            break;
+    }
+    return r;
+}
 
 
-int main(void){
-    int len;
-    uint8_t* buf;
 
+void 
+ememu_start(void){
     printf("Starting...\n");
     virt_machine_set_defaults(&myparam);
     myparam.ram_size = 256 * 1024 * 1024;
@@ -93,15 +93,11 @@ int main(void){
     mychr.read_data = chr_read_data;
     myparam.console = &mychr;
 
-    len = load_file(&buf, "/bbl32.bin");
-    myparam.files[VM_FILE_BIOS].buf = buf;
-    myparam.files[VM_FILE_BIOS].len = len;
-    printf("BIOS len = %d\n",len);
+    myparam.files[VM_FILE_BIOS].buf = bios_ptr;
+    myparam.files[VM_FILE_BIOS].len = bios_size;
 
-    len = load_file(&buf, "/kernel");
-    myparam.files[VM_FILE_KERNEL].buf = buf;
-    myparam.files[VM_FILE_KERNEL].len = len;
-    printf("Kernel len = %d\n",len);
+    myparam.files[VM_FILE_KERNEL].buf = kernel_ptr;
+    myparam.files[VM_FILE_KERNEL].len = kernel_size;
 
     vm_add_cmdline(&myparam, "console=hvc0 root=/dev/root ro");
 
@@ -110,6 +106,4 @@ int main(void){
     printf("Run...\n");
     virt_machine_run(myvm);
     printf("Leave...\n");
-    
-    return 0;
 }
