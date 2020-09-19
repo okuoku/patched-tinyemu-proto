@@ -8,6 +8,7 @@ const bios = fs.readFileSync("bbl32.bin");
 async function start(){
     the_emu = await emu();
 
+    // FIXME: Why not the_emu._ememu_configure ??
     const ememu_configure =
         the_emu.cwrap("ememu_configure", "number", ["number", "number"]);
     const ememu_start =
