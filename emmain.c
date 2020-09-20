@@ -58,7 +58,7 @@ myfs_end(FSDevice *s){
 
 static void
 myfs_delete(FSDevice* s, FSFile* f){
-    /* UNUSED? */
+    /* FIXME: implement this */
 }
 
 static void
@@ -72,11 +72,14 @@ myfs_statfs(FSDevice* fs, FSStatFS* st){
 }
 
 /* System OPs */
+struct FSFile {
+    int location;
+    uint32_t type;
+    uint32_t version;
+    uint64_t path;
+};
 
 /* fsattach: 200 */
-struct FSFile {
-    int dummy;
-};
 typedef struct FSFile FSFile;
 static int (*fsattach)(uint32_t ctx,
                        uint32_t fsfile, uint32_t uid, 
@@ -95,6 +98,7 @@ myfs_attach(FSDevice *fs, FSFile **pf, FSQID *qid, uint32_t uid,
     uint32_t version;
     uint64_t path;
     ident = malloc(sizeof(FSFile));
+    ident->location = 0; /* ROOT */
     r = fsattach((uint32_t)(uintptr_t)fs,
                  (uint32_t)(uintptr_t)ident, uid,
                  (uint32_t)(uintptr_t)uname,
@@ -104,8 +108,11 @@ myfs_attach(FSDevice *fs, FSFile **pf, FSQID *qid, uint32_t uid,
                  (uint32_t)(uintptr_t)&path);
     if(r){
         free(ident);
-        return -r;
+        return r;
     }else{
+        ident->type = type;
+        ident->version = version;
+        ident->path = path;
         *pf = ident;
         qid->type = type;
         qid->version = version;
@@ -126,14 +133,97 @@ myfs_close(FSDevice *fs, FSFile *f){
 
 /* Tree Query */
 
+/* fswalk: 201 */
+static int (*fswalk)(uint32_t ctx,
+                     uint32_t baseloc,
+                     uint32_t n,
+                     uint32_t str_names,
+                     uint32_t out_addr_loc,
+                     uint32_t out_addr_types,
+                     uint32_t out_addr_versions,
+                     uint32_t out_addr_paths /* 64bits */);
 static int
 myfs_walk(FSDevice *fs, FSFile **pf, FSQID *qids,
                    FSFile *f, int n, char **names){
-    return -P9_EIO;
+
+    int r;
+    uint32_t loc;
+    uint32_t* types = malloc(n * sizeof(uint32_t));
+    uint32_t* versions = malloc(n * sizeof(uint32_t));
+    uint64_t* paths = malloc(n * sizeof(uint64_t));
+    FSFile* ident;
+
+    r = fswalk((uint32_t)(uintptr_t)fs, f->location, n,
+               (uint32_t)(uintptr_t)names,
+               (uint32_t)(uintptr_t)&loc,
+               (uint32_t)(uintptr_t)types,
+               (uint32_t)(uintptr_t)versions,
+               (uint32_t)(uintptr_t)paths);
+
+    if(r >= 0){
+        for(int i = 0;i!=r;i++){
+            qids[i].type = types[i];
+            qids[i].version = versions[i];
+            qids[i].path = paths[i];
+        }
+        ident = malloc(sizeof(FSFile));
+        ident->location = loc;
+
+        *pf = ident;
+    }
+
+    free(types);
+    free(versions);
+    free(paths);
+
+    return r;
 }
+
+static int (*fsstat)(uint32_t ctx, uint32_t loc,
+                     uint32_t out_mode,
+                     uint32_t out_uid, uint32_t out_gid,
+                     uint32_t out_size, uint32_t out_mtime_sec,
+                     uint32_t out_mtime_nsec);
 static int
 myfs_stat(FSDevice *fs, FSFile *f, FSStat *st){
-    return -P9_EIO;
+    uint32_t mode;
+    uint32_t uid;
+    uint32_t gid;
+    uint64_t size;
+    uint64_t mtime_sec;
+    uint32_t mtime_nsec;
+    int r;
+    r = fsstat((uint32_t)(uintptr_t)fs,
+               f->location,
+               (uint32_t)(uintptr_t)&mode,
+               (uint32_t)(uintptr_t)&uid,
+               (uint32_t)(uintptr_t)&gid,
+               (uint32_t)(uintptr_t)&size,
+               (uint32_t)(uintptr_t)&mtime_sec,
+               (uint32_t)(uintptr_t)&mtime_nsec);
+    if(! r){
+        st->qid.type = f->type;
+        st->qid.version = f->version;
+        st->qid.path = f->path;
+
+        st->st_mode = mode;
+        st->st_uid = uid;
+        st->st_gid = gid;
+        st->st_nlink = 1;
+        st->st_rdev = 99;
+        st->st_size = size;
+        st->st_blksize = size;
+        st->st_blocks = 1;
+        st->st_atime_sec = 0;
+        st->st_atime_nsec = 0;
+        st->st_mtime_sec = mtime_sec;
+        st->st_mtime_nsec = mtime_nsec;
+        st->st_ctime_sec = 0;
+        st->st_ctime_nsec = 0;
+        return 0;
+    }else{
+        return r;
+    }
 }
 
 static int
@@ -285,6 +375,12 @@ ememu_configure(int req, uintptr_t param0, uintptr_t param1){
             switch(param0){
                 case 200:
                     fsattach = (void*)param1;
+                    break;
+                case 201:
+                    fswalk = (void*)param1;
+                    break;
+                case 202:
+                    fsstat = (void*)param1;
                     break;
                 default:
                     fprintf(stderr, "Unknown fsop");
