@@ -8,7 +8,7 @@ const root = "c:/cygwin64/home/oku/repos/riscv32-rootfs-proto";
 const kernel = fs.readFileSync("kernel");
 const bios = fs.readFileSync("bbl32.bin");
 
-function make_filetree(module, root){
+function make_filetree(module, root, opencb){
     const rootdir = {elms: [], container: false};
     const openfiles = [];
     const fileids = JSON.parse(fs.readFileSync(root + "/_filelist.json", "utf8"));
@@ -25,7 +25,7 @@ function make_filetree(module, root){
             openfiles.push(false);
         }
         //console.log("File",i,obj);
-        openfiles[i] = {file: obj, state: false};
+        openfiles[i] = {file: obj, state: false, mode: false};
 
         return i;
     }
@@ -166,6 +166,37 @@ function make_filetree(module, root){
                 console.log("Deleteloc", loc);
                 location_del(loc);
             }
+        },
+        open_dir: function(ctx, loc){
+            const me = openfiles[loc];
+            if(me.file.t == "d"){
+                me.mode = "directory";
+                me.state = 0;
+                return 0;
+            }else{
+                return -5;
+            }
+        },
+        open_file: function(ctx, loc, tik){
+            const me = openfiles[loc];
+            if(me.file.t == "d"){
+                console.log("Invalid open request", loc);
+                return -5;
+            }else{
+                me.mode = "file_start";
+                me.state = false;
+                fs.open(root + "/" + me.file.n, "r",
+                        (err, fd) => {
+                            if(! err){
+                                me.mode = "file_opened";
+                                me.state = fd;
+                                opencb(0, tik);
+                            }else{
+                                opencb(err, tik);
+                            }
+                        });
+                return 0;
+            }
         }
     };
 }
@@ -195,12 +226,17 @@ function addfsops(module){
         console.log("Attach",uid,uname,aname);
         return 0;
     }
-    const treeops = make_filetree(module, root);
+    function opencb(err, ticket){
+        ememu_configure(200, err, ticket);
+    }
+    const treeops = make_filetree(module, root, opencb);
 
     ememu_configure(102, 200, module.addFunction(fsattach, "iiiiiiiii"));
     ememu_configure(102, 201, module.addFunction(treeops.walk, "iiiiiiiii"));
     ememu_configure(102, 202, module.addFunction(treeops.deleteloc, "vii"));
     ememu_configure(102, 203, module.addFunction(treeops.stat, "iiiiiiiii"));
+    ememu_configure(102, 204, module.addFunction(treeops.open_file, "iiii"));
+    ememu_configure(102, 205, module.addFunction(treeops.open_dir, "iii"));
 }
 
 async function start(){

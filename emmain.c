@@ -116,15 +116,50 @@ myfs_attach(FSDevice *fs, FSFile **pf, FSQID *qid, uint32_t uid,
     }
 }
 
+/* fsopen_file, fsopen_dir */
+typedef struct {
+    FSDevice* fs;
+    FSQID* qid;
+    FSOpenCompletionFunc* cb;
+    void* opaque;
+}fsopen_ticket;
+static void
+myfs_open_cb(int res, void* ctx){
+    fsopen_ticket* ticket = (fsopen_ticket*)ctx;
+    fsopen_ticket tik = *ticket;
+    free(ticket);
+    tik.cb(tik.fs, tik.qid, res, tik.opaque);
+}
+static int (*fsopen_file)(uint32_t ctx, uint32_t loc, uint32_t tik);
+static int (*fsopen_dir)(uint32_t ctx, uint32_t loc);
 static int
 myfs_open(FSDevice *fs, FSQID *qid, FSFile *f, uint32_t flags,
                    FSOpenCompletionFunc *cb, void *opaque){
-    return -P9_EIO;
+    int r;
+    fsopen_ticket* ticket;
+    if(flags & P9_O_DIRECTORY){
+        /* Directory open is synchronous */
+        r = fsopen_dir((uint32_t)(uintptr_t)fs, f->location);
+
+        cb(fs, qid, r, opaque); // FIXME: Error code?
+        return 0;
+    }else{
+        ticket = malloc(sizeof(fsopen_ticket));
+        ticket->fs = fs;
+        ticket->qid = qid;
+        ticket->cb = cb;
+        ticket->opaque = opaque;
+        r = fsopen_file((uint32_t)(uintptr_t)fs, f->location,
+                        (uint32_t)(uintptr_t)ticket);
+        if(r){
+            free(ticket);
+        }
+        return r;
+    }
 }
 
 /* fsdelete */
 static void (*fsdelete)(uint32_t ctx, uint32_t baseloc);
-
 static void
 myfs_delete(FSDevice* s, FSFile* f){
     fsdelete((uint32_t)(uintptr_t)s, f->location);
@@ -235,16 +270,16 @@ myfs_readdir(FSDevice *fs, FSFile *f, uint64_t offset,
     return -P9_EIO;
 }
 
+static int
+myfs_readlink(FSDevice *fs, char *buf, int buf_size, FSFile *f){
+    return -P9_EIO;
+}
+
 /* Read */
 
 static int
 myfs_read(FSDevice *fs, FSFile *f, uint64_t offset,
             uint8_t *buf, int count){
-    return -P9_EIO;
-}
-
-static int
-myfs_readlink(FSDevice *fs, char *buf, int buf_size, FSFile *f){
     return -P9_EIO;
 }
 
@@ -388,11 +423,20 @@ ememu_configure(int req, uintptr_t param0, uintptr_t param1){
                 case 203:
                     fsstat = (void*)param1;
                     break;
+                case 204:
+                    fsopen_file = (void*)param1;
+                    break;
+                case 205:
+                    fsopen_dir = (void*)param1;
+                    break;
                 default:
                     fprintf(stderr, "Unknown fsop");
                     abort();
                     break;
             }
+            break;
+        case 200: /* OPEN_CB */
+            myfs_open_cb(param0, (void*)param1);
             break;
         default:
             fprintf(stderr, "Invalid argument.\n");
