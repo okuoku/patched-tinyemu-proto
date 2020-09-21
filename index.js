@@ -30,8 +30,8 @@ function make_filetree(module, root){
         return i;
     }
 
-    function location_del(obj){
-        openfiles[i] = false;
+    function location_del(loc){
+        openfiles[loc] = false;
     }
     function fill_qid(addr_type, addr_version, addr_path,
                       type, version, path){
@@ -157,8 +157,16 @@ function make_filetree(module, root){
             }else{
                 return -5;
             }
+        },
+        deleteloc: function(ctx, loc){
+            if(loc == 0){
+                // Disallow deleting root location
+                console.log("Ignore deleteloc 0");
+            }else{
+                console.log("Deleteloc", loc);
+                location_del(loc);
+            }
         }
-
     };
 }
 
@@ -191,7 +199,8 @@ function addfsops(module){
 
     ememu_configure(102, 200, module.addFunction(fsattach, "iiiiiiiii"));
     ememu_configure(102, 201, module.addFunction(treeops.walk, "iiiiiiiii"));
-    ememu_configure(102, 202, module.addFunction(treeops.stat, "iiiiiiiii"));
+    ememu_configure(102, 202, module.addFunction(treeops.deleteloc, "vii"));
+    ememu_configure(102, 203, module.addFunction(treeops.stat, "iiiiiiiii"));
 }
 
 async function start(){

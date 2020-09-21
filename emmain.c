@@ -57,11 +57,6 @@ myfs_end(FSDevice *s){
 }
 
 static void
-myfs_delete(FSDevice* s, FSFile* f){
-    /* FIXME: implement this */
-}
-
-static void
 myfs_statfs(FSDevice* fs, FSStatFS* st){
     st->f_bsize = 1024;
     st->f_blocks = 999999;
@@ -125,6 +120,14 @@ static int
 myfs_open(FSDevice *fs, FSQID *qid, FSFile *f, uint32_t flags,
                    FSOpenCompletionFunc *cb, void *opaque){
     return -P9_EIO;
+}
+
+/* fsdelete */
+static void (*fsdelete)(uint32_t ctx, uint32_t baseloc);
+
+static void
+myfs_delete(FSDevice* s, FSFile* f){
+    fsdelete((uint32_t)(uintptr_t)s, f->location);
 }
 
 static void
@@ -380,6 +383,9 @@ ememu_configure(int req, uintptr_t param0, uintptr_t param1){
                     fswalk = (void*)param1;
                     break;
                 case 202:
+                    fsdelete = (void*)param1;
+                    break;
+                case 203:
                     fsstat = (void*)param1;
                     break;
                 default:
