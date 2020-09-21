@@ -25,7 +25,7 @@ function make_filetree(module, root){
             openfiles.push(false);
         }
         //console.log("File",i,obj);
-        openfiles[i] = obj;
+        openfiles[i] = {file: obj, state: false};
 
         return i;
     }
@@ -82,7 +82,7 @@ function make_filetree(module, root){
     return {
         walk: function(ctx, baseloc, n, names, out_loc,
                        out_types, out_versions, out_paths){
-            let cur = openfiles[baseloc];
+            let cur = openfiles[baseloc].file;
             let look = false;
             for(let i=0;i!=n;i++){
                 const namep = readptr(i*4 + names);
@@ -139,7 +139,7 @@ function make_filetree(module, root){
             const mtime_sec = 0;
             const mtime_nsec = 0;
             const mode = 0x1ff; /* Octal 0777 */
-            const me = openfiles[loc];
+            const me = openfiles[loc].file;
             const uid = 0;
             const gid = 0;
             if(me){
