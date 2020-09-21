@@ -90,6 +90,12 @@ function make_filetree(module, root, opencb){
                        out_types, out_versions, out_paths){
             let cur = openfiles[baseloc].file;
             let look = false;
+            if(n == 0){
+                // Special case, walk to "."
+                const output = location_add(cur);
+                module.setValue(out_loc, output, "i32");
+                return 0;
+            }
             for(let i=0;i!=n;i++){
                 const namep = readptr(i*4 + names);
                 const typep = out_types + i*4;
@@ -213,7 +219,7 @@ function make_filetree(module, root, opencb){
                                 opencb(err, tik);
                             }
                         });
-                return 0;
+                return 1; /* Queued */
             }
         },
         readlink: function(ctx, loc, out, outlen){

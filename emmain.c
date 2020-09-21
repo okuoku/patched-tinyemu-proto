@@ -198,7 +198,7 @@ myfs_walk(FSDevice *fs, FSFile **pf, FSQID *qids,
                (uint32_t)(uintptr_t)versions,
                (uint32_t)(uintptr_t)paths);
 
-    if(r > 0){
+    if(r >= 0){
         for(i = 0;i!=r;i++){
             printf("Walk Q [%s] =>  %x:%d:%lld\n", names[i], types[i], versions[i], paths[i]);
             qids[i].type = types[i];
@@ -210,6 +210,14 @@ myfs_walk(FSDevice *fs, FSFile **pf, FSQID *qids,
         ident->type = types[r-1];
         ident->version = versions[r-1];
         ident->path = paths[r-1];
+
+        *pf = ident;
+    }else if(r == 0){
+        ident = malloc(sizeof(FSFile));
+        ident->location = loc;
+        ident->type = f->type;
+        ident->version = f->version;
+        ident->path = f->path;
 
         *pf = ident;
     }
@@ -294,17 +302,17 @@ myfs_readlink(FSDevice *fs, char *buf, int buf_size, FSFile *f){
     return r;
 }
 
-static int
-myfs_readdir(FSDevice *fs, FSFile *f, uint64_t offset,
-                      uint8_t *buf, int count){
-    return -P9_EIO;
-}
-
 /* Read */
 
 static int
 myfs_read(FSDevice *fs, FSFile *f, uint64_t offset,
             uint8_t *buf, int count){
+    return -P9_EIO;
+}
+
+static int
+myfs_readdir(FSDevice *fs, FSFile *f, uint64_t offset,
+                      uint8_t *buf, int count){
     return -P9_EIO;
 }
 
