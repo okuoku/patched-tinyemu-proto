@@ -60,6 +60,13 @@ function make_filetree(module, root, opencb){
         links[e.n] = e;
     });
 
+    // FIXME: Fixup symlinks (needs '/' denotes FS root )
+    fileids.forEach(e => {
+        if(e.t == "s" && links[e.tgt]){
+            e.tgt = "/" + e.tgt;
+        }
+    });
+
     // Construct tree entries
     fileids.forEach(e => {
         const elms = e.n.split("/");
