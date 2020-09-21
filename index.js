@@ -24,7 +24,6 @@ function make_filetree(module, root, opencb){
         if(i == openfiles.length){
             openfiles.push(false);
         }
-        //console.log("File",i,obj);
         openfiles[i] = {file: obj, state: false, mode: false};
 
         return i;
@@ -142,10 +141,22 @@ function make_filetree(module, root, opencb){
             const me = openfiles[loc].file;
             const uid = 0;
             const gid = 0;
+            let size =0;
             if(me){
-                const mystat = me.n ? fs.statSync(root + "/" + me.n) : false;
-                const size = mystat ? mystat.size : 0;
+                switch(me.t){
+                    case "s":
+                        size = me.n.length;
+                        break;
+                    case "d":
+                        size = me.elms.length;
+                        break;
+                        
+                    default:
+                        const mystat = me.n ? fs.statSync(root + "/" + me.n) : false;
+                        size = mystat ? mystat.size : 0;
 
+                        break;
+                }
                 module.setValue(out_mode, mode, "i32");
                 module.setValue(out_uid, uid, "i32");
                 module.setValue(out_gid, gid, "i32");
@@ -197,6 +208,17 @@ function make_filetree(module, root, opencb){
                         });
                 return 0;
             }
+        },
+        readlink: function(ctx, loc, out, outlen){
+            const me = openfiles[loc];
+            if(me.file.t = "s"){
+                //console.log("Readlink",loc,me.file);
+                module.stringToUTF8(me.file.tgt, out, outlen);
+                return 0;
+            }else{
+                console.log("Readlink (fail)",loc, me);
+                return -5;
+            }
         }
     };
 }
@@ -222,7 +244,7 @@ function addfsops(module){
         const uname = readpath(str_uname);
         const aname = readpath(str_aname);
         fill_qid(addr_qid_type, addr_qid_version, addr_qid_path,
-                 0, 0, 0);
+                 0x80, 999, 99999);
         console.log("Attach",uid,uname,aname);
         return 0;
     }
@@ -235,8 +257,9 @@ function addfsops(module){
     ememu_configure(102, 201, module.addFunction(treeops.walk, "iiiiiiiii"));
     ememu_configure(102, 202, module.addFunction(treeops.deleteloc, "vii"));
     ememu_configure(102, 203, module.addFunction(treeops.stat, "iiiiiiiii"));
-    ememu_configure(102, 204, module.addFunction(treeops.open_file, "iiii"));
-    ememu_configure(102, 205, module.addFunction(treeops.open_dir, "iii"));
+    ememu_configure(102, 204, module.addFunction(treeops.readlink, "iiiii"));
+    ememu_configure(102, 205, module.addFunction(treeops.open_file, "iiii"));
+    ememu_configure(102, 206, module.addFunction(treeops.open_dir, "iii"));
 }
 
 async function start(){

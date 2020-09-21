@@ -184,7 +184,7 @@ static int
 myfs_walk(FSDevice *fs, FSFile **pf, FSQID *qids,
                    FSFile *f, int n, char **names){
 
-    int r;
+    int r,i;
     uint32_t loc;
     uint32_t* types = malloc(n * sizeof(uint32_t));
     uint32_t* versions = malloc(n * sizeof(uint32_t));
@@ -198,14 +198,18 @@ myfs_walk(FSDevice *fs, FSFile **pf, FSQID *qids,
                (uint32_t)(uintptr_t)versions,
                (uint32_t)(uintptr_t)paths);
 
-    if(r >= 0){
-        for(int i = 0;i!=r;i++){
+    if(r > 0){
+        for(i = 0;i!=r;i++){
+            printf("Walk Q [%s] =>  %x:%d:%lld\n", names[i], types[i], versions[i], paths[i]);
             qids[i].type = types[i];
             qids[i].version = versions[i];
             qids[i].path = paths[i];
         }
         ident = malloc(sizeof(FSFile));
         ident->location = loc;
+        ident->type = types[r-1];
+        ident->version = versions[r-1];
+        ident->path = paths[r-1];
 
         *pf = ident;
     }
@@ -243,12 +247,26 @@ myfs_stat(FSDevice *fs, FSFile *f, FSStat *st){
         st->qid.type = f->type;
         st->qid.version = f->version;
         st->qid.path = f->path;
+        printf("Stat %d => [%x:%d:%lld]\n", 
+               f->location, f->type, f->version, f->path);
 
         st->st_mode = mode;
+        /* FIXME: Linux enconding */
+        switch(f->type){
+            case 0x80: /* DIR */
+                st->st_mode |= 0x4000;
+                break;
+            case 0x2: /* SIMLINK */
+                st->st_mode |= 0xa000;
+                break;
+            default: /* REG */
+                st->st_mode |= 0x8000;
+                break;
+        }
         st->st_uid = uid;
         st->st_gid = gid;
         st->st_nlink = 1;
-        st->st_rdev = 99;
+        st->st_rdev = 0;
         st->st_size = size;
         st->st_blksize = size;
         st->st_blocks = 1;
@@ -264,14 +282,21 @@ myfs_stat(FSDevice *fs, FSFile *f, FSStat *st){
     }
 }
 
+static int (*fsreadlink)(uint32_t ctx, uint32_t loc,
+                         uint32_t out_addr_buf, uint32_t outlen);
 static int
-myfs_readdir(FSDevice *fs, FSFile *f, uint64_t offset,
-                      uint8_t *buf, int count){
-    return -P9_EIO;
+myfs_readlink(FSDevice *fs, char *buf, int buf_size, FSFile *f){
+    int r;
+    r = fsreadlink((uint32_t)(uintptr_t)fs,
+                   f->location,
+                   (uint32_t)(uintptr_t)buf, buf_size);
+    printf("Readlink %d: [%s]\n", f->location, buf);
+    return r;
 }
 
 static int
-myfs_readlink(FSDevice *fs, char *buf, int buf_size, FSFile *f){
+myfs_readdir(FSDevice *fs, FSFile *f, uint64_t offset,
+                      uint8_t *buf, int count){
     return -P9_EIO;
 }
 
@@ -424,9 +449,12 @@ ememu_configure(int req, uintptr_t param0, uintptr_t param1){
                     fsstat = (void*)param1;
                     break;
                 case 204:
-                    fsopen_file = (void*)param1;
+                    fsreadlink = (void*)param1;
                     break;
                 case 205:
+                    fsopen_file = (void*)param1;
+                    break;
+                case 206:
                     fsopen_dir = (void*)param1;
                     break;
                 default:
