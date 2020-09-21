@@ -41,6 +41,45 @@ function make_filetree(module, root, opencb){
         module.setValue(addr_version, version, "i32");
         module.setValue(addr_path, path, "i64");
     }
+    function follow_itr(cur, elms){
+        if(elms.length > 1){
+            const a = elms.shift();
+            if(a == ".."){
+                return follow_itr(cur.container, elms);
+            }else{
+                const next = cur.elms[a];
+                if(next){
+                    return follow_itr(next, elms);
+                }else{
+                    return false;
+                }
+            }
+        }else{
+            return cur;
+        }
+    }
+    function follow_link(obj){
+        if(obj.tgt[0] == "/"){
+            return links[obj.tgt];
+        }else{
+            return follow_itr(obj, obj.tgt.split("/"));
+        }
+    }
+    function resolve_link(follow, obj){
+        if(! obj){
+            return false;
+        }else if(follow){
+            if(obj.t == "s"){
+                const resolved = resolve_link(follow, follow_link(obj));
+                console.log("Symlink resolve",obj.n,resolved.n);
+                return resolved;
+            }else{
+                return obj;
+            }
+        }else{
+            return obj;
+        }
+    }
     function readptr(addr){
         return module.getValue(addr, "i32");
     }
@@ -195,8 +234,8 @@ function make_filetree(module, root, opencb){
                 location_del(loc);
             }
         },
-        open_dir: function(ctx, loc){
-            const me = openfiles[loc];
+        open_dir: function(ctx, loc, follow){
+            const me = resolve_link(follow, openfiles[loc]);
             if(me.file.t == "d"){
                 me.mode = "directory";
                 me.state = 0;
@@ -206,8 +245,8 @@ function make_filetree(module, root, opencb){
                 return -5;
             }
         },
-        open_file: function(ctx, loc, tik){
-            const me = openfiles[loc];
+        open_file: function(ctx, loc, tik, follow){
+            const me = resolve_link(follow, openfiles[loc]);
             if(me.file.t == "d"){
                 console.log("Invalid open request", loc);
                 return -5;
@@ -296,8 +335,8 @@ function addfsops(module){
     ememu_configure(102, 202, module.addFunction(treeops.deleteloc, "vii"));
     ememu_configure(102, 203, module.addFunction(treeops.stat, "iiiiiiiii"));
     ememu_configure(102, 204, module.addFunction(treeops.readlink, "iiiii"));
-    ememu_configure(102, 205, module.addFunction(treeops.open_file, "iiii"));
-    ememu_configure(102, 206, module.addFunction(treeops.open_dir, "iii"));
+    ememu_configure(102, 205, module.addFunction(treeops.open_file, "iiiii"));
+    ememu_configure(102, 206, module.addFunction(treeops.open_dir, "iiii"));
     ememu_configure(102, 207, module.addFunction(treeops.close, "vii"));
     ememu_configure(102, 208, module.addFunction(treeops.read, "iiiiii"));
 }

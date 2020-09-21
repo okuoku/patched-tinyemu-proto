@@ -137,20 +137,22 @@ myfs_open_cb(int res, void* ctx){
     printf("OpenCB: %d %d %lld\n",tik.type,tik.version,tik.path);
     tik.cb(tik.fs, &qid, res, tik.opaque);
 }
-static int (*fsopen_file)(uint32_t ctx, uint32_t loc, uint32_t tik);
-static int (*fsopen_dir)(uint32_t ctx, uint32_t loc);
+static int (*fsopen_file)(uint32_t ctx, uint32_t loc, uint32_t tik, 
+                          uint32_t followlink);
+static int (*fsopen_dir)(uint32_t ctx, uint32_t loc, uint32_t followlink);
 static int
 myfs_open(FSDevice *fs, FSQID *qid, FSFile *f, uint32_t flags,
                    FSOpenCompletionFunc *cb, void *opaque){
     int r;
     fsopen_ticket* ticket;
+    const uint32_t followlink = (flags & P9_O_NOFOLLOW) ? 0 : 1;
     /* Since we're ROFS, QID is constant */
     qid->type = f->type;
     qid->version = f->version;
     qid->path = f->path;
     if(flags & P9_O_DIRECTORY){
         /* Directory open is synchronous */
-        r = fsopen_dir((uint32_t)(uintptr_t)fs, f->location);
+        r = fsopen_dir((uint32_t)(uintptr_t)fs, f->location, followlink);
         return r;
     }else{
         ticket = malloc(sizeof(fsopen_ticket));
@@ -161,7 +163,7 @@ myfs_open(FSDevice *fs, FSQID *qid, FSFile *f, uint32_t flags,
         ticket->cb = cb;
         ticket->opaque = opaque;
         r = fsopen_file((uint32_t)(uintptr_t)fs, f->location,
-                        (uint32_t)(uintptr_t)ticket);
+                        (uint32_t)(uintptr_t)ticket, followlink);
         if(r<0){
             free(ticket);
         }
