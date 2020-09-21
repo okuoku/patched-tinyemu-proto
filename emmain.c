@@ -119,16 +119,23 @@ myfs_attach(FSDevice *fs, FSFile **pf, FSQID *qid, uint32_t uid,
 /* fsopen_file, fsopen_dir */
 typedef struct {
     FSDevice* fs;
-    FSQID* qid;
+    uint32_t type;
+    uint32_t version;
+    uint64_t path;
     FSOpenCompletionFunc* cb;
     void* opaque;
 }fsopen_ticket;
 static void
 myfs_open_cb(int res, void* ctx){
+    FSQID qid;
     fsopen_ticket* ticket = (fsopen_ticket*)ctx;
     fsopen_ticket tik = *ticket;
     free(ticket);
-    tik.cb(tik.fs, tik.qid, res, tik.opaque);
+    qid.type = tik.type;
+    qid.version = tik.version;
+    qid.path = tik.path;
+    printf("OpenCB: %d %d %lld\n",tik.type,tik.version,tik.path);
+    tik.cb(tik.fs, &qid, res, tik.opaque);
 }
 static int (*fsopen_file)(uint32_t ctx, uint32_t loc, uint32_t tik);
 static int (*fsopen_dir)(uint32_t ctx, uint32_t loc);
@@ -137,21 +144,25 @@ myfs_open(FSDevice *fs, FSQID *qid, FSFile *f, uint32_t flags,
                    FSOpenCompletionFunc *cb, void *opaque){
     int r;
     fsopen_ticket* ticket;
+    /* Since we're ROFS, QID is constant */
+    qid->type = f->type;
+    qid->version = f->version;
+    qid->path = f->path;
     if(flags & P9_O_DIRECTORY){
         /* Directory open is synchronous */
         r = fsopen_dir((uint32_t)(uintptr_t)fs, f->location);
-
-        cb(fs, qid, r, opaque); // FIXME: Error code?
-        return 0;
+        return r;
     }else{
         ticket = malloc(sizeof(fsopen_ticket));
         ticket->fs = fs;
-        ticket->qid = qid;
+        ticket->type = f->type;
+        ticket->version = f->version;
+        ticket->path = f->path;
         ticket->cb = cb;
         ticket->opaque = opaque;
         r = fsopen_file((uint32_t)(uintptr_t)fs, f->location,
                         (uint32_t)(uintptr_t)ticket);
-        if(r){
+        if(r<0){
             free(ticket);
         }
         return r;
@@ -163,10 +174,13 @@ static void (*fsdelete)(uint32_t ctx, uint32_t baseloc);
 static void
 myfs_delete(FSDevice* s, FSFile* f){
     fsdelete((uint32_t)(uintptr_t)s, f->location);
+    free(f);
 }
 
+static void (*fsclose)(uint32_t ctx, uint32_t loc);
 static void
 myfs_close(FSDevice *fs, FSFile *f){
+    fsclose((uint32_t)(uintptr_t)fs, f->location);
 }
 
 /* Tree Query */
@@ -198,7 +212,7 @@ myfs_walk(FSDevice *fs, FSFile **pf, FSQID *qids,
                (uint32_t)(uintptr_t)versions,
                (uint32_t)(uintptr_t)paths);
 
-    if(r >= 0){
+    if(r > 0){
         for(i = 0;i!=r;i++){
             printf("Walk Q [%s] =>  %x:%d:%lld\n", names[i], types[i], versions[i], paths[i]);
             qids[i].type = types[i];
@@ -218,6 +232,7 @@ myfs_walk(FSDevice *fs, FSFile **pf, FSQID *qids,
         ident->type = f->type;
         ident->version = f->version;
         ident->path = f->path;
+        printf("IdentZero: %d %d %lld\n",f->type,f->version,f->path);
 
         *pf = ident;
     }
@@ -303,11 +318,17 @@ myfs_readlink(FSDevice *fs, char *buf, int buf_size, FSFile *f){
 }
 
 /* Read */
-
+static int (*fsread)(uint32_t ctx, uint32_t loc, 
+                     uint32_t offs, /* FIXME: 32bit offset */
+                     uint32_t out_addr_buf, uint32_t count);
 static int
 myfs_read(FSDevice *fs, FSFile *f, uint64_t offset,
             uint8_t *buf, int count){
-    return -P9_EIO;
+    int r;
+    r = fsread((uint32_t)(uintptr_t)fs,
+               f->location, offset,
+               (uint32_t)(uintptr_t)buf, count);
+    return r;
 }
 
 static int
@@ -465,6 +486,13 @@ ememu_configure(int req, uintptr_t param0, uintptr_t param1){
                 case 206:
                     fsopen_dir = (void*)param1;
                     break;
+                case 207:
+                    fsclose = (void*)param1;
+                    break;
+                case 208:
+                    fsread = (void*)param1;
+                    break;
+
                 default:
                     fprintf(stderr, "Unknown fsop");
                     abort();

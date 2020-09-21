@@ -30,6 +30,9 @@ function make_filetree(module, root, opencb){
     }
 
     function location_del(loc){
+        if(! openfiles[loc]){
+            console.log("Invalid deletion",loc,openfiles);
+        }
         openfiles[loc] = false;
     }
     function fill_qid(addr_type, addr_version, addr_path,
@@ -93,6 +96,7 @@ function make_filetree(module, root, opencb){
             if(n == 0){
                 // Special case, walk to "."
                 const output = location_add(cur);
+                console.log("walkzero", output);
                 module.setValue(out_loc, output, "i32");
                 return 0;
             }
@@ -113,7 +117,7 @@ function make_filetree(module, root, opencb){
                 //console.log("Walk", name, cur, look);
 
                 if(! look){
-                    return i;
+                    break;
                 }else{
                     let type = 0;
                     switch(look.t){
@@ -196,6 +200,7 @@ function make_filetree(module, root, opencb){
             if(me.file.t == "d"){
                 me.mode = "directory";
                 me.state = 0;
+                //console.log("Opendir", me);
                 return 0;
             }else{
                 return -5;
@@ -231,6 +236,26 @@ function make_filetree(module, root, opencb){
             }else{
                 console.log("Readlink (fail)",loc, me);
                 return -5;
+            }
+        },
+        read: function(ctx, loc, offs, out, outlen){
+            const me = openfiles[loc];
+            if(me.file.t == "f" || me.file.t == "x"){
+                let r = fs.readSync(me.state, module.HEAPU8, out, outlen, offs);
+                return r;
+            }else{
+                return -5;
+            }
+        },
+        close: function(ctx, loc){
+            const me = openfiles[loc];
+            if(me){
+                console.log("Closing", me);
+                if(me.mode == "file_opened"){
+                    fs.close(me.state);
+                }
+                me.mode = false;
+                me.state = false;
             }
         }
     };
@@ -273,6 +298,8 @@ function addfsops(module){
     ememu_configure(102, 204, module.addFunction(treeops.readlink, "iiiii"));
     ememu_configure(102, 205, module.addFunction(treeops.open_file, "iiii"));
     ememu_configure(102, 206, module.addFunction(treeops.open_dir, "iii"));
+    ememu_configure(102, 207, module.addFunction(treeops.close, "vii"));
+    ememu_configure(102, 208, module.addFunction(treeops.read, "iiiiii"));
 }
 
 async function start(){
