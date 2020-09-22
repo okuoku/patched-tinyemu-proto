@@ -9,7 +9,8 @@ const kernel = fs.readFileSync("kernel");
 const bios = fs.readFileSync("bbl32.bin");
 
 function make_filetree(module, root, opencb){
-    const rootdir = {elms: [], container: false};
+    const rootdir = {elms: [], container: false, pathid: 999999,
+    version: 999};
     const openfiles = [];
     const fileids = JSON.parse(fs.readFileSync(root + "/_filelist.json", "utf8"));
     const links = {};
@@ -34,6 +35,20 @@ function make_filetree(module, root, opencb){
             console.log("Invalid deletion",loc,openfiles);
         }
         openfiles[loc] = false;
+    }
+    function size_dirent(name){
+        const len = module.lengthBytesUTF8(name);
+        return len + 13 + 8 + 1 + 2;
+    }
+    function fill_dirent(addr, type, version, path, next, dtype, name){
+        const len = module.lengthBytesUTF8(name);
+        module.setValue(addr + 0, type, "i8");
+        module.setValue(addr + 1, version, "i32");
+        module.setValue(addr + 5, path, "i64");
+        module.setValue(addr + 13, next, "i64");
+        module.setValue(addr + 21, dtype, "i8");
+        module.setValue(addr + 22, len, "i16");
+        module.writeStringToMemory(name, addr + 24, true);
     }
     function fill_qid(addr_type, addr_version, addr_path,
                       type, version, path){
@@ -97,6 +112,7 @@ function make_filetree(module, root, opencb){
     }
 
     links["/"] = rootdir;
+    rootdir.container = rootdir;
 
     fileids.forEach(e => {
         links[e.n] = e;
@@ -286,6 +302,58 @@ function make_filetree(module, root, opencb){
                 return -5;
             }
         },
+        readdir: function(ctx, loc, offs, out, outlen){
+            const me = openfiles[loc];
+            let elmoffs = offs - 2;
+            let cur = 0;
+            if(me.file.t != "d"){
+                // FIXME: Check for openmode instead
+                return -5;
+            }
+            for(;;){
+                let ent = false;
+                if(! me.file.elms){
+                    console.log(me);
+                }
+                if(elmoffs >= me.file.elms.length){
+                    break;
+                }
+
+                if(elmoffs < 0){ /* . and .. */
+                    const nam = (elmoffs == -2) ? "." : "..";
+                    const p = (elmoffs == -2) ? me.file.container : me.file;
+                    ent = {t: "d", n: nam,
+                        version: p.version,
+                        pathid: p.pathid,
+                    };
+                }else{
+                    ent = me.file.elms[elmoffs];
+                }
+
+                /* Fill a entry */
+                console.log(me.file.elms, elmoffs, ent);
+                const entlen = size_dirent(ent.n);
+                if(cur + entlen > outlen){
+                    break;
+                }
+                let type = 0;
+                let dtype = 0;
+                if(ent.t == "s"){
+                    type = 0x2;
+                    dtype = 10; /* Linux dtype */
+                }else if(ent.t == "d"){
+                    type = 0x80;
+                    dtype = 4; /* Linux dtype */
+                }
+
+                elmoffs++;
+                fill_dirent(out + cur, type, ent.version, ent.pathid,
+                            elmoffs + 2, dtype, ent.n);
+
+                cur += entlen;
+            }
+            return cur;
+        },
         close: function(ctx, loc){
             const me = openfiles[loc];
             if(me){
@@ -339,6 +407,7 @@ function addfsops(module){
     ememu_configure(102, 206, module.addFunction(treeops.open_dir, "iiii"));
     ememu_configure(102, 207, module.addFunction(treeops.close, "vii"));
     ememu_configure(102, 208, module.addFunction(treeops.read, "iiiiii"));
+    ememu_configure(102, 209, module.addFunction(treeops.readdir, "iiiiii"));
 }
 
 async function start(){

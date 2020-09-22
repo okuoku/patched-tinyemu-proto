@@ -333,10 +333,17 @@ myfs_read(FSDevice *fs, FSFile *f, uint64_t offset,
     return r;
 }
 
+static int (*fsreaddir)(uint32_t ctx, uint32_t loc,
+                        uint32_t offs, /* FIXME: 32bit offset */
+                        uint32_t out_addr_buf, uint32_t count);
 static int
 myfs_readdir(FSDevice *fs, FSFile *f, uint64_t offset,
                       uint8_t *buf, int count){
-    return -P9_EIO;
+    int r;
+    r = fsreaddir((uint32_t)(uintptr_t)fs,
+                  f->location, offset,
+                  (uint32_t)(uintptr_t)buf, count);
+    return r;
 }
 
 /* Tree Write */
@@ -493,6 +500,9 @@ ememu_configure(int req, uintptr_t param0, uintptr_t param1){
                     break;
                 case 208:
                     fsread = (void*)param1;
+                    break;
+                case 209:
+                    fsreaddir = (void*)param1;
                     break;
 
                 default:
