@@ -134,7 +134,7 @@ myfs_open_cb(int res, void* ctx){
     qid.type = tik.type;
     qid.version = tik.version;
     qid.path = tik.path;
-    printf("OpenCB: %d %d %lld\n",tik.type,tik.version,tik.path);
+    //printf("OpenCB: %d %d %lld\n",tik.type,tik.version,tik.path);
     tik.cb(tik.fs, &qid, res, tik.opaque);
 }
 static int (*fsopen_file)(uint32_t ctx, uint32_t loc, uint32_t tik, 
@@ -216,7 +216,7 @@ myfs_walk(FSDevice *fs, FSFile **pf, FSQID *qids,
 
     if(r > 0){
         for(i = 0;i!=r;i++){
-            printf("Walk Q [%s] =>  %x:%d:%lld\n", names[i], types[i], versions[i], paths[i]);
+            //printf("Walk Q [%s] =>  %x:%d:%lld\n", names[i], types[i], versions[i], paths[i]);
             qids[i].type = types[i];
             qids[i].version = versions[i];
             qids[i].path = paths[i];
@@ -234,7 +234,7 @@ myfs_walk(FSDevice *fs, FSFile **pf, FSQID *qids,
         ident->type = f->type;
         ident->version = f->version;
         ident->path = f->path;
-        printf("IdentZero: %d %d %lld\n",f->type,f->version,f->path);
+        //printf("IdentZero: %d %d %lld\n",f->type,f->version,f->path);
 
         *pf = ident;
     }
@@ -272,8 +272,7 @@ myfs_stat(FSDevice *fs, FSFile *f, FSStat *st){
         st->qid.type = f->type;
         st->qid.version = f->version;
         st->qid.path = f->path;
-        printf("Stat %d => [%x:%d:%lld]\n", 
-               f->location, f->type, f->version, f->path);
+        //printf("Stat %d => [%x:%d:%lld]\n", f->location, f->type, f->version, f->path);
 
         st->st_mode = mode;
         /* FIXME: Linux enconding */
@@ -315,7 +314,7 @@ myfs_readlink(FSDevice *fs, char *buf, int buf_size, FSFile *f){
     r = fsreadlink((uint32_t)(uintptr_t)fs,
                    f->location,
                    (uint32_t)(uintptr_t)buf, buf_size);
-    printf("Readlink %d: [%s]\n", f->location, buf);
+    //printf("Readlink %d: [%s]\n", f->location, buf);
     return r;
 }
 
