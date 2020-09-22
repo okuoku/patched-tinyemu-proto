@@ -9,7 +9,9 @@ const kernel = fs.readFileSync("kernel");
 const bios = fs.readFileSync("bbl32.bin");
 
 function make_filetree(module, root, opencb){
-    const rootdir = {elms: [], container: false, pathid: 999999,
+    const rootdir = {elms: [], 
+        entries: [],
+        container: false, pathid: 999999,
     version: 999};
     const openfiles = [];
     const fileids = JSON.parse(fs.readFileSync(root + "/_filelist.json", "utf8"));
@@ -38,16 +40,36 @@ function make_filetree(module, root, opencb){
     }
     function size_dirent(name){
         const len = module.lengthBytesUTF8(name);
-        return len + 13 + 8 + 1 + 2;
+        return len + 13 /* QID */ + 8 /* offs */ + 1 /* dtype */ + 2 /* len */;
     }
     function fill_dirent(addr, type, version, path, next, dtype, name){
         const len = module.lengthBytesUTF8(name);
+        //console.log("fill_dirent", addr, type, version, path, next, dtype, name);
+
         module.setValue(addr + 0, type, "i8");
-        module.setValue(addr + 1, version, "i32");
-        module.setValue(addr + 5, path, "i64");
-        module.setValue(addr + 13, next, "i64");
+        module.setValue(addr + 1, version & 0xff, "i8");
+        module.setValue(addr + 2, (version>>8) & 0xff, "i8");
+        module.setValue(addr + 3, (version>>16) & 0xff, "i8");
+        module.setValue(addr + 4, (version>>24) & 0xff, "i8");
+        module.setValue(addr + 5, path & 0xff, "i8");
+        module.setValue(addr + 6, (path>>8) & 0xff, "i8");
+        module.setValue(addr + 7, (path>>16) & 0xff, "i8");
+        module.setValue(addr + 8, (path>>24) & 0xff, "i8");
+        module.setValue(addr + 9, (path>>32) & 0xff, "i8");
+        module.setValue(addr + 10, (path>>40) & 0xff, "i8");
+        module.setValue(addr + 11, (path>>48) & 0xff, "i8");
+        module.setValue(addr + 12, 0, "i8");
+        module.setValue(addr + 13, next & 0xff, "i8");
+        module.setValue(addr + 14, (next>>8) & 0xff, "i8");
+        module.setValue(addr + 15, (next>>16) & 0xff, "i8");
+        module.setValue(addr + 16, (next>>24) & 0xff, "i8");
+        module.setValue(addr + 17, 0, "i8");
+        module.setValue(addr + 18, 0, "i8");
+        module.setValue(addr + 19, 0, "i8");
+        module.setValue(addr + 20, 0, "i8");
         module.setValue(addr + 21, dtype, "i8");
-        module.setValue(addr + 22, len, "i16");
+        module.setValue(addr + 22, len & 0xff, "i8");
+        module.setValue(addr + 23, (len >> 8) & 0xff, "i8");
         module.writeStringToMemory(name, addr + 24, true);
     }
     function fill_qid(addr_type, addr_version, addr_path,
@@ -108,7 +130,8 @@ function make_filetree(module, root, opencb){
         fileids[i].refcount = 0;
         fileids[i].content = false;
         fileids[i].container = false;
-        fileids[i].elms = [];
+        fileids[i].elms = []; // FIXME: Should be a dict
+        fileids[i].entries = [];
     }
 
     links["/"] = rootdir;
@@ -134,6 +157,7 @@ function make_filetree(module, root, opencb){
             curpath += p;
             if(! cur.elms[p]){
                 cur.elms[p] = links[curpath];
+                cur.entries.push(p);
                 links[curpath].container = cur;
             }
             cur = links[curpath];
@@ -151,7 +175,7 @@ function make_filetree(module, root, opencb){
             if(n == 0){
                 // Special case, walk to "."
                 const output = location_add(cur);
-                console.log("walkzero", output);
+                //console.log("walkzero", output);
                 module.setValue(out_loc, output, "i32");
                 return 0;
             }
@@ -197,7 +221,7 @@ function make_filetree(module, root, opencb){
             }
             if(look){
                 const loc = location_add(look);
-                console.log("walk", loc);
+                //console.log("walk", loc);
                 module.setValue(out_loc, loc, "i32");
                 return n;
             }else{
@@ -206,7 +230,7 @@ function make_filetree(module, root, opencb){
         },
         stat: function(ctx, loc, out_mode, out_uid, out_gid,
                        out_size, out_mtime, out_mtime_nsec){
-            console.log("Stat", loc);
+            //console.log("Stat", loc);
             const mtime_sec = 0;
             const mtime_nsec = 0;
             const mode = 0x1ff; /* Octal 0777 */
@@ -220,7 +244,7 @@ function make_filetree(module, root, opencb){
                         size = me.n.length;
                         break;
                     case "d":
-                        size = me.elms.length;
+                        size = me.entries.length;
                         break;
                         
                     default:
@@ -246,7 +270,7 @@ function make_filetree(module, root, opencb){
                 // Disallow deleting root location
                 console.log("Ignore deleteloc 0");
             }else{
-                console.log("Deleteloc", loc);
+                //console.log("Deleteloc", loc);
                 location_del(loc);
             }
         },
@@ -311,11 +335,10 @@ function make_filetree(module, root, opencb){
                 return -5;
             }
             for(;;){
+                let name = false;
                 let ent = false;
-                if(! me.file.elms){
-                    console.log(me);
-                }
-                if(elmoffs >= me.file.elms.length){
+                if(elmoffs >= me.file.entries.length){
+                    //console.log("Out", elmoffs, me.file.entries.length, me);
                     break;
                 }
 
@@ -326,12 +349,25 @@ function make_filetree(module, root, opencb){
                         version: p.version,
                         pathid: p.pathid,
                     };
+                    name = nam;
                 }else{
-                    ent = me.file.elms[elmoffs];
+                    name = me.file.entries[elmoffs];
+                    const baseent = me.file.elms[name];
+                    const p = me.file.container;
+                    ent = {
+                        t: baseent.t,
+                        n: name,
+                        version: baseent.version,
+                        pathid: baseent.pathid
+                    };
+                    //console.log("Ent", ent);
+                    //ent.t = "d";
+                    //ent.n = name;
+                    //ent.version = p.version;
+                    //ent.pathid = p.pathid;
                 }
 
                 /* Fill a entry */
-                console.log(me.file.elms, elmoffs, ent);
                 const entlen = size_dirent(ent.n);
                 if(cur + entlen > outlen){
                     break;
@@ -340,17 +376,21 @@ function make_filetree(module, root, opencb){
                 let dtype = 0;
                 if(ent.t == "s"){
                     type = 0x2;
-                    dtype = 10; /* Linux dtype */
+                    dtype = 10; /* Linux dtype(LNK) */
                 }else if(ent.t == "d"){
                     type = 0x80;
-                    dtype = 4; /* Linux dtype */
+                    dtype = 4; /* Linux dtype(DIR) */
+                }else{
+                    dtype = 8; /* Linux dtype(REG) */
                 }
 
                 elmoffs++;
+                //console.log(outlen, cur, name);
                 fill_dirent(out + cur, type, ent.version, ent.pathid,
-                            elmoffs + 2, dtype, ent.n);
+                            elmoffs + 2, dtype, name);
 
                 cur += entlen;
+                break;
             }
             return cur;
         },
